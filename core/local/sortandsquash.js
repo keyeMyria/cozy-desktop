@@ -251,30 +251,12 @@ export default function sortAndSquash (events: ContextualizedChokidarFSEvent[], 
     }
   }
 
-  log.trace('Reserve actions in progress for next flush...')
-
-  // TODO: Use _.partition()?
-  for (let i = actions.length - 1; i >= 0; i--) {
-    const action = actions[i]
-    if (action.wip) {
-      if (action.type === 'PrepMoveFolder' || action.type === 'PrepMoveFile') {
-        log.debug({
-          action: action.type,
-          oldpath: action.old.path,
-          path: action.path,
-          ino: action.ino
-        }, 'incomplete action')
-      } else {
-        log.debug({action: action.type, path: action.path}, 'incomplete action')
-      }
-      pendingActions.push(actions[i])
-      actions.splice(i, 1)
-    }
-  }
-
   log.trace('Final sort...')
 
   const sorter = (a, b) => {
+    if (a.wip && !b.wip) return -1
+    if (b.wip && !a.wip) return 1
+
     if (prepAction.childOf(prepAction.addPath(a), prepAction.delPath(b))) return -1
     if (prepAction.childOf(prepAction.addPath(b), prepAction.delPath(a))) return 1
 
@@ -296,7 +278,29 @@ export default function sortAndSquash (events: ContextualizedChokidarFSEvent[], 
 
   actions.sort(sorter)
 
-  log.debug(`Identified ${actions.length} change(s).`)
+  log.trace('Reserve actions in progress for next flush...')
 
+  for (var i = 0; i < actions.length; i++) {
+    const action = actions[i]
+    if (action.wip) {
+      if (action.type === 'PrepMoveFolder' || action.type === 'PrepMoveFile') {
+        log.debug({
+          action: action.type,
+          oldpath: action.old.path,
+          path: action.path,
+          ino: action.ino
+        }, 'incomplete action')
+      } else {
+        log.debug({action: action.type, path: action.path}, 'incomplete action')
+      }
+      pendingActions.push(actions[i])
+    } else {
+      log.debug(`Identified ${actions.length} change(s).`)
+      log.debug(`${pendingActions.length} change(s) are still pending.`)
+      return actions.slice(i)
+    }
+  }
+
+  // all actions are wip
   return actions
 }
